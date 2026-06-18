@@ -10,6 +10,8 @@ Each skill lives in its own directory:
 ai-skills/
   update-aur-package/
     SKILL.md
+  send-slack-message/
+    SKILL.md
 ```
 
 Every `SKILL.md` starts with YAML frontmatter:
@@ -26,6 +28,7 @@ Use lowercase, hyphen-separated skill names. Keep descriptions specific and incl
 ## Available Skills
 
 - `update-aur-package`: repeatable workflow for updating Arch/AUR packages that use `PKGBUILD` and `.SRCINFO`.
+- `send-slack-message`: safe workflow for sending Slack bot messages with `SLACK_BOT_TOKEN` and `chat.postMessage`.
 
 ## opencode Setup
 
