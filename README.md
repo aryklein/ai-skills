@@ -12,6 +12,8 @@ ai-skills/
     SKILL.md
   send-slack-message/
     SKILL.md
+  kubernetes-iperf3-throughput/
+    SKILL.md
 ```
 
 Every `SKILL.md` starts with YAML frontmatter:
@@ -29,6 +31,7 @@ Use lowercase, hyphen-separated skill names. Keep descriptions specific and incl
 
 - `update-aur-package`: repeatable workflow for updating Arch/AUR packages that use `PKGBUILD` and `.SRCINFO`.
 - `send-slack-message`: safe workflow for sending Slack bot messages with `SLACK_BOT_TOKEN` and `chat.postMessage`.
+- `kubernetes-iperf3-throughput`: bidirectional TCP throughput tests between two Kubernetes contexts using temporary `iperf3` pods.
 
 ## opencode Setup
 
