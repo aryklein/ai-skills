@@ -15,6 +15,8 @@ Use this workflow when sending a Slack message from an installed bot.
 - Ask for the destination and message text if either is missing.
 - Ask for a thread timestamp only when the user wants a threaded reply and has not provided one.
 - Treat posting to Slack as an external side effect; only send when the user clearly asks to send/post/reply.
+- Prefer a readable Slack-native style with concise icons or emoji for status and sections, such as `✅`, `🚨`, `🔎`, `🛠️`, `📌`, and `➡️`, unless the user asks for plain text.
+- Do not send literal `\n` text in Slack messages. Use real newline characters in the message body, or keep the message as a single paragraph if newlines are not needed.
 
 ## Workflow
 
@@ -69,15 +71,18 @@ curl -sS -X POST https://slack.com/api/chat.postMessage \
   --data '{"channel":"<channel-id>","text":"<message>","thread_ts":"<thread-ts>"}'
 ```
 
-When the message contains quotes, newlines, backslashes, or other JSON-sensitive characters, use a JSON-safe construction method instead of hand-written JSON. For example, if `jq` is available:
+When the message contains quotes, real newlines, icons/emoji, backslashes, or other JSON-sensitive characters, use a JSON-safe construction method instead of hand-written JSON. Prefer this approach for most messages:
 
 ```bash
-payload=$(jq -n --arg channel "<channel-id>" --arg text "<message>" '{channel: $channel, text: $text}')
+message=$'🔎 Short title\n\n✅ Key point with real line breaks\n🛠️ Action taken\n📌 Final status'
+payload=$(jq -n --arg channel "<channel-id>" --arg text "$message" '{channel: $channel, text: $text}')
 curl -sS -X POST https://slack.com/api/chat.postMessage \
   -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
   -H "Content-Type: application/json; charset=utf-8" \
   --data "$payload"
 ```
+
+Before posting, ensure the final Slack `text` value contains actual line breaks, not visible `\n` sequences. In shell examples, `$'...\n...'` creates real newlines; plain quoted strings like `'...\n...'` do not.
 
 4. Verify the response.
 
