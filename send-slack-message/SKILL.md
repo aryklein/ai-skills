@@ -20,73 +20,60 @@ Use this workflow when sending a Slack message from an installed bot.
 
 ## Workflow
 
-1. Confirm token availability without printing it.
+1. Select the token environment variable.
 
-Run a quiet environment check such as:
+Set `token_env=SLACK_BOT_TOKEN`, or set it to the environment variable name explicitly provided by the user. Pass the same `--token-env "$token_env"` to both helpers. This variable contains only a name, never the token itself. Both helpers check that the selected variable is nonempty without printing its value.
 
-```bash
-test -n "$SLACK_BOT_TOKEN"
-```
-
-If the token is missing, ask the user to make `SLACK_BOT_TOKEN` available in the shell. Do not ask them to paste the token into chat unless there is no safer option.
+If the token is missing, ask the user to make the selected environment variable available in the shell. Do not ask them to paste the token into chat.
 
 2. Identify the destination.
 
 Use a channel ID, user ID, or conversation ID directly when available. If the user gives a channel name such as `#team-updates` or `team-updates`, resolve it to an ID before posting.
 
-Channel name resolution requires `jq` and Slack read scopes. Use `conversations.list` and do not print the token:
+Channel name resolution requires Python 3.9+ and Slack read scopes. Run the bundled resolver using its absolute path, resolved relative to this `SKILL.md` file (not the current project directory):
 
 ```bash
-channel_name="${CHANNEL_NAME#\#}"
-channel_id=$(
-  curl -sS https://slack.com/api/conversations.list \
-    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-    --get \
-    --data-urlencode "types=public_channel,private_channel" \
-    --data-urlencode "limit=1000" |
-  jq -r --arg name "$channel_name" '.channels[] | select(.name == $name) | .id' |
-  head -n 1
-)
+token_env=SLACK_BOT_TOKEN  # Replace only with the user-selected environment variable name.
+python3 "/absolute/path/to/send-slack-message/scripts/resolve-channel.py" \
+  '#team-updates' --token-env "$token_env"
 ```
 
-If `channel_id` is empty, ask for the channel ID or ask the user to invite the bot to the channel. Public channel lookup commonly requires `channels:read`; private channel lookup commonly requires `groups:read` and bot membership.
+The resolver reads `SLACK_BOT_TOKEN` from the environment and prints only the channel ID on success. If the user names another token environment variable, pass `--token-env VARIABLE_NAME`; never pass the token itself as an argument. It uses only Python's standard library, follows `response_metadata.next_cursor` even through short or empty pages, and stops as soon as it finds an exact channel-name match. HTTP `429` responses are retried up to three times per page after waiting for `Retry-After`.
 
-3. Build the Slack API request safely.
+On failure, it prints a diagnostic to stderr and exits nonzero. Do not post after a failed lookup. Handle API or transport errors explicitly; do not treat them as "channel not found." Only ask for an ID or a bot invitation after the resolver reports that all accessible pages have been searched, or explains an access limitation. Public lookup requires `channels:read`; private lookup requires `groups:read` and bot membership. The resolver requests both channel types, so the token needs both read scopes.
 
-Use `chat.postMessage` for normal messages:
+3. Post using the bundled Python helper.
+
+`post-message.py` requires Python 3.9+ and uses only the standard library. It reads the selected token internally, builds JSON safely, and calls `chat.postMessage`. Never pass a token or expanded Authorization header as a command-line argument (including `curl -H`), because process inspection can expose arguments.
+
+Use the same `token_env` selected above, including when the destination ID was provided directly. Supply the message on stdin. A quoted heredoc preserves quotes, backslashes, emoji, and real newlines without shell expansion:
 
 ```bash
-curl -sS -X POST https://slack.com/api/chat.postMessage \
-  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-  -H "Content-Type: application/json; charset=utf-8" \
-  --data '{"channel":"<channel-id>","text":"<message>"}'
+python3 "/absolute/path/to/send-slack-message/scripts/post-message.py" \
+  '<channel-id>' --token-env "$token_env" <<'MESSAGE'
+🛠️ Short title
+
+✅ Key point with real line breaks
+📌 Final status
+MESSAGE
 ```
 
-For a threaded reply, include `thread_ts`:
+For a threaded reply, add `--thread-ts` with the parent message timestamp:
 
 ```bash
-curl -sS -X POST https://slack.com/api/chat.postMessage \
-  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-  -H "Content-Type: application/json; charset=utf-8" \
-  --data '{"channel":"<channel-id>","text":"<message>","thread_ts":"<thread-ts>"}'
+python3 "/absolute/path/to/send-slack-message/scripts/post-message.py" \
+  '<channel-id>' --token-env "$token_env" --thread-ts '<thread-ts>' <<'MESSAGE'
+Reply text goes here.
+MESSAGE
 ```
 
-When the message contains quotes, real newlines, icons/emoji, backslashes, or other JSON-sensitive characters, use a JSON-safe construction method instead of hand-written JSON. Prefer this approach for most messages:
-
-```bash
-message=$'🔎 Short title\n\n✅ Key point with real line breaks\n🛠️ Action taken\n📌 Final status'
-payload=$(jq -n --arg channel "<channel-id>" --arg text "$message" '{channel: $channel, text: $text}')
-curl -sS -X POST https://slack.com/api/chat.postMessage \
-  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-  -H "Content-Type: application/json; charset=utf-8" \
-  --data "$payload"
-```
-
-Before posting, ensure the final Slack `text` value contains actual line breaks, not visible `\n` sequences. In shell examples, `$'...\n...'` creates real newlines; plain quoted strings like `'...\n...'` do not.
+Use absolute helper paths resolved relative to this `SKILL.md`, not the current project directory. Before posting, ensure the message contains actual line breaks, not visible `\n` sequences.
 
 4. Verify the response.
 
-Check the Slack JSON response for `"ok": true`. Report success with the channel and timestamp when available. Do not include the token or authorization header.
+The helper exits successfully only after Slack returns `"ok": true` with a channel and timestamp. It prints only that receipt; report success using it. On failure, it exits nonzero with a diagnostic. Do not include the token or authorization header.
+
+The helper does not retry posting automatically. A connection error, timeout, or malformed response may occur after Slack accepted the message. Check the destination before retrying to avoid duplicate posts. For HTTP 429 rate limits, the helper reports the `Retry-After` delay in seconds; wait at least that long before an explicit retry. If Slack omits the header or returns an invalid delay, the helper reports that the retry window is unknown; do not assume an immediate retry is safe.
 
 5. Handle common errors clearly.
 
